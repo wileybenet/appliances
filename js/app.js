@@ -4,26 +4,31 @@ define(['vendor/underscore', 'vendor/d3'], function(_, d3) {
       // map categorical data into arrays
       mapData = function(err, rows) {
         data = _.chain(rows[0]).keys().map(function(key) {
+          var dataSet = _(rows).map(function(row) {
+            return +row[key];
+          });
           return [
             key,
-            _(rows).map(function(point, idx) {
+            _(new Array(28)).map(function(q, idx) {
               return {
-                val: +point[key],
-                time: new Date(rows[idx].timeMid.replace(/T/g, ' '))
+                val: _.chain(new Array(28)).map(function(v,i) {
+                  return dataSet[i*28+idx];
+                }).reduce(function(memo, val) {
+                  return memo + val;
+                }).value() / 28,
+                time: idx
               };
             })
           ];
         }).object().value();
 
-        
-        
         draw();
       },
       // draw containing svg
       draw = function() {
         var count = 0,
-          width = window.innerWidth-100,
-          height = window.innerHeight-50,
+          width = window.innerWidth-300,
+          height = window.innerHeight-100,
           margin = {
             l: 60,
             t: 10
@@ -36,9 +41,9 @@ define(['vendor/underscore', 'vendor/d3'], function(_, d3) {
             other: 'C88',
             refrigeration: 'CAA'
           },
-          x = d3.time.scale()
+          x = d3.scale.linear()
             .range([0, width]),
-          y = d3.scale.pow().exponent(.3)
+          y = d3.scale.pow().exponent(.5)
             .range([height, 0]),
           xAxis = d3.svg.axis()
             .scale(x)
@@ -54,10 +59,18 @@ define(['vendor/underscore', 'vendor/d3'], function(_, d3) {
             .y(function(d) {
               return y(d.val);
             }),
-          svg = d3.select('#vis-container').append('svg');
+          svg = d3.select('#vis-container').append('svg'),
+          pathTween = function(data) {
+              var interpolate = d3.scale.quantile()
+                .domain([0,1])
+                .range(d3.range(1, data.length + 1));
+              return function(t) {
+                return line(data.slice(0, interpolate(t)));
+              };
+          };
 
-        x.domain(d3.extent(_(data.timeMid).pluck('time'), function(d) { return d; }));
-        y.domain(d3.extent([0,80], function(d) { return d; }));
+        x.domain(d3.extent([0,27], function(d) { return d; }));
+        y.domain(d3.extent([0,20], function(d) { return d; }));
 
         svg.attr({
           width: width+100,
@@ -66,7 +79,7 @@ define(['vendor/underscore', 'vendor/d3'], function(_, d3) {
 
         svg.append('g')
           .attr({
-            class: 'axis y-axis',
+            class: 'axis x-axis',
             transform: 'translate(' + margin.l + ',' + (height + margin.t) + ')'
           })
           .call(xAxis);
@@ -92,8 +105,7 @@ define(['vendor/underscore', 'vendor/d3'], function(_, d3) {
             .attr('transform', 'translate(' + margin.l + ',' + margin.t + ')')
             .attr('class', 'line')
             .attr('style', function() { return 'stroke: #' + styles[name]; })
-            .transition().duration(1000)
-            .delay(++count*500)
+            .text(function(d) { return d; })
             .attr('d', line);
         });
 
