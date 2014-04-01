@@ -1,58 +1,173 @@
 define(['vendor/underscore', 'vendor/d3'], function(_, d3) {
   return function() {
-    var data = {},
+    var SMOOTH = 3,
+      INIT = {
+        alwaysOn: true,
+        cooking: true,
+        dryer: false,
+        heatingAC: false,
+        other: false,
+        refrigeration: false,
+        average: true
+      },
+      rows,
+      data = {},
+      styles = {
+        alwaysOn: '00C',
+        cooking: '88C',
+        dryer: '66C',
+        heatingAC: '22C',
+        other: 'AAC',
+        refrigeration: '44C',
+        average: 'FF8500'
+      },
+      getIdx = function(idx, total) {
+        if (idx < 0) return 0;
+        if (idx >= total) return total-1;
+        return idx
+      },
+      smooth = function(idx, num) {
+        return _(new Array(num*2+1)).map(function(key, i) {
+          return idx+(i-num);
+        });
+      },
+      avg = function(rows, idx) {
+        return _.chain(smooth(idx, SMOOTH)).map(function(val) {
+          return getIdx(val, rows.length);
+        }).reduce(function(memo, idx) {
+          return memo + _.chain(rows[idx]).filter(function(value, key) {
+            var control = d3.select('#'+key+'-box');
+            return key !== 'average' ? (control[0][0] ? control : {
+              property: function() {
+                return false;
+              }
+            }).property('checked') : false;
+          }).map(function(value) {
+            return +value/6 || 0;
+          }).reduce(function(mem, val) {
+            return mem + val;
+          }, 0).value();
+        }, 0).value() / (SMOOTH * 2 + 1);
+      },
+      setAverage = function() {
+        var average = [];
+        for (var i = 0; i < rows.length; i++) {
+          average[i] = {
+            val: avg(rows, i),
+            time: data.alwaysOn[i].time
+          };
+        }
+        return average;
+      },
       // map categorical data into arrays
-      mapData = function(err, rows) {
+      mapData = function(err, rws) {
+        rows = rws;
         data = _.chain(rows[0]).keys().map(function(key) {
-          var dataSet = _(rows).map(function(row) {
-            return +row[key];
-          });
           return [
             key,
-            _(new Array(28)).map(function(q, idx) {
+            _(rows).map(function(point, idx) {
               return {
-                val: _.chain(new Array(28)).map(function(v,i) {
-                  return dataSet[i*28+idx];
-                }).reduce(function(memo, val) {
-                  return memo + val;
-                }).value() / 28,
-                time: idx
+                val: +point[key]/6 || null,
+                time: new Date(rows[idx].timeMid.replace(/T/g, ' '))
               };
             })
           ];
         }).object().value();
 
+        data.average = setAverage();
+
         draw();
       },
-      // draw containing svg
-      draw = function() {
+      drawControls = _.once(function() {
+        var names = {
+            alwaysOn: 'Always On',
+            cooking: 'Cooking',
+            dryer: 'Dryer',
+            heatingAC: 'Heating/AC',
+            other: 'Other',
+            refrigeration: 'Refrigeration',
+            average: 'Average'
+          }, $select;
+
+        _(data).each(function(dataSet, name) {
+          if (name === 'timeMid') return;
+          var container = d3.select('#controls')
+            .append('div')
+            .on('mouseover', function() {
+              d3.selectAll('.line')
+                .classed('fade', true);
+              d3.select('.line-'+name)
+                .classed('vis', true)
+                .classed('fade', false);
+            })
+            .on('mouseout', function() {
+              d3.selectAll('.line')
+                .classed('fade', false)
+                .classed('vis', false);
+            });
+          container
+            .append('input')
+            .attr({
+              id: name+'-box',
+              'data-set': name,
+              type: 'checkbox'
+            })
+            .property('checked', INIT[name])
+            .on('change', function(evt) {
+              var $box = d3.select(this);
+              d3.select('.line-'+$box.attr('data-set'))
+                .classed('hidden', !$box.property('checked'));
+              updateAvg();
+            });
+          container
+            .append('label')
+            .attr({
+              for: name+'-box'
+            })
+            .style('color', '#'+styles[name])
+            .html((name === 'average') ? ('<span id="select-port"></span> day average (total)') : names[name]);
+          $select = d3.select('#select-port')
+            .append('select');
+          $select
+            .selectAll('option')
+            .data(_(new Array(10)).map(function(v, i) { return i*2+1; }))
+            .enter()
+            .append('option')
+            .attr('value', function(d) { return d; })
+            .property('selected', function(d) { return d === SMOOTH*2+1 ? true : false; })
+            .text(function(d) { return d; });
+          $select
+            .on('change', function() {
+              SMOOTH = (d3.select(this).node().value - 1) / 2;
+              updateAvg();
+            });
+        });
+      }),
+      updateAvg,
+      // draw containing svg and render lines
+      draw = function(resize) {
+        d3.select('#vis-container svg')
+          .remove();
         var count = 0,
-          width = window.innerWidth-300,
-          height = window.innerHeight-100,
+          width = window.innerWidth-120,
+          height = window.innerHeight-125,
           margin = {
             l: 60,
             t: 10
           },
-          styles = {
-            alwaysOn: 'C00',
-            cooking: 'C22',
-            dryer: 'C44',
-            heatingAC: 'C66',
-            other: 'C88',
-            refrigeration: 'CAA'
-          },
-          x = d3.scale.linear()
+          x = d3.time.scale()
             .range([0, width]),
-          y = d3.scale.pow().exponent(.5)
+          y = d3.scale.pow().exponent(.3)
             .range([height, 0]),
           xAxis = d3.svg.axis()
             .scale(x)
+            .ticks(d3.time.weeks, 2)
             .orient('bottom'),
           yAxis = d3.svg.axis()
             .scale(y)
             .orient('left'),
           line = d3.svg.line()
-            // .interpolate('basis')
+            .interpolate('basis')
             .x(function(d) {
               return x(d.time);
             })
@@ -60,24 +175,24 @@ define(['vendor/underscore', 'vendor/d3'], function(_, d3) {
               return y(d.val);
             }),
           svg = d3.select('#vis-container').append('svg'),
-          pathTween = function(data) {
-              var interpolate = d3.scale.quantile()
-                .domain([0,1])
-                .range(d3.range(1, data.length + 1));
-              return function(t) {
-                return line(data.slice(0, interpolate(t)));
-              };
-          };
+          xAxisNode = svg.append('g'),
+          graphs = svg.append('g');
+        updateAvg = function(resize) {
+          graphs.selectAll('.line-average')
+            .data([setAverage()])
+            .transition().duration(resize || 500)
+            .attr('d', line);
+        };
 
-        x.domain(d3.extent([0,27], function(d) { return d; }));
-        y.domain(d3.extent([0,20], function(d) { return d; }));
+        x.domain(d3.extent(_(data.timeMid).pluck('time'), function(d) { return d; }));
+        y.domain(d3.extent([0,12], function(d) { return d; }));
 
         svg.attr({
           width: width+100,
-          height: height+100
+          height: height+50
         });
 
-        svg.append('g')
+        xAxisNode
           .attr({
             class: 'axis x-axis',
             transform: 'translate(' + margin.l + ',' + (height + margin.t) + ')'
@@ -91,30 +206,39 @@ define(['vendor/underscore', 'vendor/d3'], function(_, d3) {
           .append('text')
           .attr({
             transform: 'rotate(-90)',
-            y: -30,
-            x: -180
+            y: -37,
+            x: -height/2+60
           })
           .style('text-anchor', 'end')
-          .text('kWh');;
+          .text('kW');
 
-        delete data.timeMid;
+        drawControls();
 
         _(data).each(function(dataSet, name) {
-          svg.append('path')
-            .datum(data[name])
-            .attr('transform', 'translate(' + margin.l + ',' + margin.t + ')')
-            .attr('class', 'line')
-            .attr('style', function() { return 'stroke: #' + styles[name]; })
-            .text(function(d) { return d; })
-            .attr('d', line);
+          if (name === 'timeMid') return;
+          graphs.selectAll('.line-'+name)
+            .data([dataSet])
+            .enter()
+            .append('svg:path')
+            .attr({
+              transform: 'translate(' + margin.l + ',' + margin.t + ')',
+              class: 'line line-'+name+(d3.select('#'+name+'-box').property('checked') ? '' : ' hidden'),
+              style: 'stroke: #' + styles[name],
+              d: line
+            });
         });
 
-
+        updateAvg(resize);
       };
 
     // fetch .csv file
     this.init = function() {
       d3.csv('data/appliance.csv', mapData);
     }
+
+    d3.select(window)
+      .on('resize', function() {
+        draw(1);
+      });
   };
 });

@@ -2,6 +2,40 @@ body {
 	font-family: Helvetica, Arial, Sans-Serif;
 }
 
+#header {
+  text-align: center;
+}
+
+.line-average {
+  stroke-width: 1.5 !important;
+}
+
+#controls {
+  position: absolute;
+  top: 30px;
+  right: 20px;
+}
+#controls label, #controls input {
+  cursor: pointer;
+}
+#controls div {
+  padding: 2px 10px;
+}
+#controls label {
+  padding: 5px 3px;
+}
+
+.hidden {
+  display: none;
+  stroke-dasharray: 8 4;
+}
+.fade {
+  opacity: .35;
+}
+.vis {
+  display: block !important;
+}
+
 .axis path, .axis line {
 	fill: none;
 	stroke: #000;
